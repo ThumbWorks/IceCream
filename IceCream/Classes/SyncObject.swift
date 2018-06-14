@@ -35,7 +35,6 @@ extension SyncObject: Syncable {
     public var recordType: String {
         return T.recordType
     }
-    
     public var customZoneID: CKRecordZone.ID {
         return T.customZoneID
     }
