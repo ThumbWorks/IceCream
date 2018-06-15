@@ -42,11 +42,11 @@ public class CreamAsset: Object {
     public func storedData() -> Data? {
         return try! Data(contentsOf: filePath)
     }
-
+    
     public var filePath: URL {
         return CreamAsset.creamAssetDefaultURL().appendingPathComponent(uniqueFileName)
     }
-
+    
     func save(data: Data, to path: String) {
         let url = CreamAsset.creamAssetDefaultURL().appendingPathComponent(path)
         do {
