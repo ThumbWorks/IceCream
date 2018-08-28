@@ -20,7 +20,7 @@ class DogsViewController: UIViewController {
     let realm = try! Realm()
     
     lazy var addBarItem: UIBarButtonItem = {
-        let b = UIBarButtonItem(barButtonSystemItem: UIBarButtonSystemItem.add, target: self, action: #selector(add))
+        let b = UIBarButtonItem(barButtonSystemItem: UIBarButtonItem.SystemItem.add, target: self, action: #selector(add))
         return b
     }()
     
@@ -67,7 +67,7 @@ class DogsViewController: UIViewController {
       dog.name = "Dog Number " + "\(dogs.count)"
       dog.age = dogs.count + 1
 
-      let data = UIImageJPEGRepresentation(UIImage(named: dog.age % 2 == 1 ? "smile_dog" : "tongue_dog")!, 1.0) as Data!
+        let data = UIImage(named: dog.age % 2 == 1 ? "smile_dog" : "tongue_dog")!.jpegData(compressionQuality: 1.0) as Data!
       dog.avatar = CreamAsset.create(object: dog, propName: Dog.AVATAR_KEY, data: data!)
       try! realm.write {
         realm.add(dog)
@@ -105,7 +105,7 @@ extension DogsViewController: UITableViewDelegate {
             guard ip.row < `self`.dogs.count else { return }
             let dog = `self`.dogs[ip.row]
             try! `self`.realm.write {
-                if let imageData = UIImageJPEGRepresentation(UIImage(named: dog.age % 2 == 0 ? "smile_dog" : "tongue_dog")!, 1.0) {
+                if let imageData = UIImage(named: dog.age % 2 == 0 ? "smile_dog" : "tongue_dog")!.jpegData(compressionQuality: 1.0) {
                   dog.avatar = CreamAsset.create(object: dog, propName: Dog.AVATAR_KEY, data: imageData)
                 }
             }

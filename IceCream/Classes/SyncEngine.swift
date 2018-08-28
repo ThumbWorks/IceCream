@@ -93,7 +93,7 @@ public final class SyncEngine {
                     }
                 }
                 
-                NotificationCenter.default.addObserver(self, selector: #selector(`self`.cleanUp), name: .UIApplicationWillTerminate, object: nil)
+                NotificationCenter.default.addObserver(self, selector: #selector(`self`.cleanUp), name: UIApplication.willTerminateNotification, object: nil)
                 
                 /// 3. Create the subscription to the CloudKit database
                 if `self`.subscriptionIsLocallyCached { return }
