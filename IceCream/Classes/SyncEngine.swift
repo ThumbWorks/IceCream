@@ -23,9 +23,6 @@ import UIKit
 
 public final class SyncEngine {
     
-    /// Indicates the private database in default container
-    private let privateDatabase = CKContainer.default().privateCloudDatabase
-    
     private let errorHandler = ErrorHandler()
     private let syncObjects: [Syncable]
     
@@ -48,8 +45,14 @@ public final class SyncEngine {
                 /// Apple suggests that we should fetch changes in database, *especially* the very first launch.
                 /// But actually, there **might** be some rare unknown and weird reason that the data is not synced between muilty devices.
                 /// So I suggests fetch changes in database everytime app launches.
-                self.fetchChangesInDatabase()
+                self.fetchChangesInDatabase(databaseType: .dbPrivate, {
+                    print("first private sync done!")
+                })
 
+                self.fetchChangesInDatabase(databaseType: .dbShared, {
+                    print("first shared sync done!")
+                })
+                
                 self.resumeLongLivedOperationIfPossible()
 
                 self.createCustomZones { [weak self] (error) in
@@ -107,7 +110,8 @@ public final class SyncEngine {
                 }
             }
         }
-
+        // We only want to create the custom zone in the private database
+        let privateDatabase = DatabaseType.dbPrivate.dataBase()
         privateDatabase.add(modifyOp)
     }
 
@@ -120,22 +124,54 @@ public final class SyncEngine {
 
 /// Chat to the CloudKit API directly
 extension SyncEngine {
-    
-    /// The changes token, for more please reference to https://developer.apple.com/videos/play/wwdc2016/231/
-    var databaseChangeToken: CKServerChangeToken? {
+    var privateDatabaseChangeToken: CKServerChangeToken? {
         get {
             /// For the very first time when launching, the token will be nil and the server will be giving everything on the Cloud to client
             /// In other situation just get the unarchive the data object
-            guard let tokenData = UserDefaults.standard.object(forKey: IceCreamKey.databaseChangesTokenKey.value) as? Data else { return nil }
+            guard let tokenData = UserDefaults.standard.object(forKey: IceCreamKey.privateDatabaseChangesTokenKey.value) as? Data else { return nil }
             return NSKeyedUnarchiver.unarchiveObject(with: tokenData) as? CKServerChangeToken
         }
         set {
             guard let n = newValue else {
-                UserDefaults.standard.removeObject(forKey: IceCreamKey.databaseChangesTokenKey.value)
+                UserDefaults.standard.removeObject(forKey: IceCreamKey.privateDatabaseChangesTokenKey.value)
                 return
             }
             let data = NSKeyedArchiver.archivedData(withRootObject: n)
-            UserDefaults.standard.set(data, forKey: IceCreamKey.databaseChangesTokenKey.value)
+            UserDefaults.standard.set(data, forKey: IceCreamKey.privateDatabaseChangesTokenKey.value)
+        }
+    }
+    var sharedDatabaseChangeToken: CKServerChangeToken? {
+        get {
+            /// For the very first time when launching, the token will be nil and the server will be giving everything on the Cloud to client
+            /// In other situation just get the unarchive the data object
+            guard let tokenData = UserDefaults.standard.object(forKey: IceCreamKey.sharedDatabaseChangesTokenKey.value) as? Data else { return nil }
+            return NSKeyedUnarchiver.unarchiveObject(with: tokenData) as? CKServerChangeToken
+        }
+        set {
+            guard let n = newValue else {
+                UserDefaults.standard.removeObject(forKey: IceCreamKey.sharedDatabaseChangesTokenKey.value)
+                return
+            }
+            let data = NSKeyedArchiver.archivedData(withRootObject: n)
+            UserDefaults.standard.set(data, forKey: IceCreamKey.sharedDatabaseChangesTokenKey.value)
+        }
+    }
+    
+    /// The changes token, for more please reference to https://developer.apple.com/videos/play/wwdc2016/231/
+    var publicDatabaseChangeToken: CKServerChangeToken? {
+        get {
+            /// For the very first time when launching, the token will be nil and the server will be giving everything on the Cloud to client
+            /// In other situation just get the unarchive the data object
+            guard let tokenData = UserDefaults.standard.object(forKey: IceCreamKey.publicDatabaseChangesTokenKey.value) as? Data else { return nil }
+            return NSKeyedUnarchiver.unarchiveObject(with: tokenData) as? CKServerChangeToken
+        }
+        set {
+            guard let n = newValue else {
+                UserDefaults.standard.removeObject(forKey: IceCreamKey.publicDatabaseChangesTokenKey.value)
+                return
+            }
+            let data = NSKeyedArchiver.archivedData(withRootObject: n)
+            UserDefaults.standard.set(data, forKey: IceCreamKey.publicDatabaseChangesTokenKey.value)
         }
     }
 
@@ -149,46 +185,63 @@ extension SyncEngine {
             UserDefaults.standard.set(newValue, forKey: IceCreamKey.subscriptionIsLocallyCachedKey.value)
         }
     }
-
+    
+    private func update(token: CKServerChangeToken?, for databaseType: DatabaseType) {
+        switch databaseType {
+        case .dbPrivate:
+            self.privateDatabaseChangeToken = token
+        case .dbShared:
+            self.sharedDatabaseChangeToken = token
+        }
+    }
+    
     /// Only update the changeToken when fetch process completes
-    private func fetchChangesInDatabase(_ callback: (() -> Void)? = nil) {
-
-        let changesOperation = CKFetchDatabaseChangesOperation(previousServerChangeToken: databaseChangeToken)
+    private func fetchChangesInDatabase(databaseType: DatabaseType, _ callback: (() -> Void)? = nil) {
+        var zoneIDsChanged = [CKRecordZone.ID]()
+        // TODO handle deleted zones
+        var zoneIDsDeleted = [CKRecordZone.ID]()
         
-        /// For more, see the source code, it has the detailed explanation
-        changesOperation.fetchAllChanges = true
-
-        changesOperation.changeTokenUpdatedBlock = { [weak self] newToken in
+        var databaseChangeToken: CKServerChangeToken?
+        switch databaseType {
+        case .dbPrivate:
+            databaseChangeToken = privateDatabaseChangeToken
+        case .dbShared:
+            databaseChangeToken = sharedDatabaseChangeToken
+        }
+        let changesOp = CKFetchDatabaseChangesOperation(previousServerChangeToken: databaseChangeToken)
+        
+        /// For more, see the source code, it has the detailed explanation                 /// For more, see the source code, it has the detailed explanation
+        changesOp.fetchAllChanges = true
+        
+        changesOp.changeTokenUpdatedBlock = { [weak self] newToken in
             guard let self = self else { return }
-            self.databaseChangeToken = newToken
+            self.update(token: newToken, for: databaseType)
         }
 
-        /// Cuz we only have one custom zone, so we don't need to store the CKRecordZoneID temporarily
-        /*
-         changesOperation.recordZoneWithIDChangedBlock = { [weak self] zoneID in
-         guard let self = self else { return }
-         self.changedRecordZoneID = zoneID
-         }
-         */
-        changesOperation.fetchDatabaseChangesCompletionBlock = {
+        changesOp.recordZoneWithIDChangedBlock = { [weak self] zoneID in
+            guard let _ = self else { return }
+            zoneIDsChanged.append(zoneID)
+        }
+        changesOp.fetchDatabaseChangesCompletionBlock = {
+ 
             [weak self]
             newToken, _, error in
             guard let self = self else { return }
             switch self.errorHandler.resultType(with: error) {
             case .success:
-                self.databaseChangeToken = newToken
+                self.update(token: newToken, for: databaseType)
                 // Fetch the changes in zone level
-                self.fetchChangesInZones(callback)
+                self.fetchChangesInZones(databaseType: databaseType, zoneIDs: zoneIDsChanged, callback)
             case .retry(let timeToWait, _):
                 self.errorHandler.retryOperationIfPossible(retryAfter: timeToWait, block: {
-                    self.fetchChangesInDatabase(callback)
+                    self.fetchChangesInZones(databaseType: databaseType, zoneIDs: zoneIDsChanged, callback)
                 })
             case .recoverableError(let reason, _):
                 switch reason {
                 case .changeTokenExpired:
                     /// The previousServerChangeToken value is too old and the client must re-sync from scratch
-                    self.databaseChangeToken = nil
-                    self.fetchChangesInDatabase(callback)
+                    self.update(token: nil, for: databaseType)
+                    self.fetchChangesInDatabase(databaseType: databaseType, callback)
                 default:
                     return
                 }
@@ -196,14 +249,21 @@ extension SyncEngine {
                 return
             }
         }
-        privateDatabase.add(changesOperation)
+        databaseType.dataBase().add(changesOp)
     }
 
-    private var zoneIds: [CKRecordZone.ID] {
-        return syncObjects.map { $0.customZoneID }
+    @available(iOS 12.0, *)
+    private var zoneIdOptions: [CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneConfiguration] {
+        return syncObjects.reduce([CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneConfiguration]()) { (dict, syncEngine) -> [CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneConfiguration] in
+            var dict = dict
+            let zoneChangesConfiguration = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+            zoneChangesConfiguration.previousServerChangeToken = syncEngine.zoneChangesToken
+            dict[syncEngine.customZoneID] = zoneChangesConfiguration
+            return dict
+        }
     }
 
-    private var zoneIdOptions: [CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneOptions] {
+    private var legacyZoneIdOptions: [CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneOptions] {
         return syncObjects.reduce([CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneOptions]()) { (dict, syncEngine) -> [CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneOptions] in
             var dict = dict
             let zoneChangesOptions = CKFetchRecordZoneChangesOperation.ZoneOptions()
@@ -212,9 +272,15 @@ extension SyncEngine {
             return dict
         }
     }
-
-    private func fetchChangesInZones(_ callback: (() -> Void)? = nil) {
-        let changesOp = CKFetchRecordZoneChangesOperation(recordZoneIDs: zoneIds, optionsByRecordZoneID: zoneIdOptions)
+    
+    private func fetchChangesInZones(databaseType: DatabaseType, zoneIDs: [CKRecordZone.ID], _ callback: (() -> Void)? = nil) {
+        var changesOp: CKFetchRecordZoneChangesOperation
+        if #available(iOS 12.0, *) {
+            changesOp = CKFetchRecordZoneChangesOperation(recordZoneIDs: zoneIDs, configurationsByRecordZoneID: zoneIdOptions)
+        } else {
+            // Fallback on earlier versions
+            changesOp = CKFetchRecordZoneChangesOperation(recordZoneIDs: zoneIDs, optionsByRecordZoneID: legacyZoneIdOptions)
+        }
         changesOp.fetchAllChanges = true
         
         changesOp.recordZoneChangeTokensUpdatedBlock = { [weak self] zoneId, token, _ in
@@ -228,7 +294,7 @@ extension SyncEngine {
             /// Handle the record:
             guard let self = self else { return }
             guard let syncObject = self.syncObjects.first(where: { $0.recordType == record.recordType }) else { return }
-            syncObject.add(record: record)
+            syncObject.add(databaseType: databaseType, record: record)
         }
 
         changesOp.recordWithIDWasDeletedBlock = { [weak self] recordId, _ in
@@ -237,7 +303,7 @@ extension SyncEngine {
             syncObject.delete(recordID: recordId)
         }
 
-        changesOp.recordZoneFetchCompletionBlock = { [weak self](zoneId ,token, _, _, error) in
+        changesOp.recordZoneFetchCompletionBlock = { [weak self](zoneId, token, clientChangeTokenData, isMoreComing, error) in
             guard let self = self else { return }
             switch self.errorHandler.resultType(with: error) {
             case .success:
@@ -247,7 +313,7 @@ extension SyncEngine {
                 print("Sync successfully: \(zoneId))")
             case .retry(let timeToWait, _):
                 self.errorHandler.retryOperationIfPossible(retryAfter: timeToWait, block: {
-                    self.fetchChangesInZones(callback)
+                    self.fetchChangesInZones(databaseType: databaseType, zoneIDs: zoneIDs, callback)
                 })
             case .recoverableError(let reason, _):
                 switch reason {
@@ -255,7 +321,7 @@ extension SyncEngine {
                     /// The previousServerChangeToken value is too old and the client must re-sync from scratch
                     guard let syncObject = self.syncObjects.first(where: { $0.customZoneID == zoneId }) else { return }
                     syncObject.zoneChangesToken = nil
-                    self.fetchChangesInZones(callback)
+                    self.fetchChangesInZones(databaseType: databaseType, zoneIDs: zoneIDs, callback)
                 default:
                     return
                 }
@@ -263,28 +329,28 @@ extension SyncEngine {
                 return
             }
         }
-
-        privateDatabase.add(changesOp)
+        databaseType.dataBase().add(changesOp)
     }
 
     fileprivate func createDatabaseSubscription() {
         #if os(iOS) || os(tvOS) || os(macOS)
         
-        let subscription = CKDatabaseSubscription(subscriptionID: IceCreamConstant.cloudKitSubscriptionID)
-
-        let notificationInfo = CKSubscription.NotificationInfo()
-        notificationInfo.shouldSendContentAvailable = true // Silent Push
-
-        subscription.notificationInfo = notificationInfo
-
-        let createOp = CKModifySubscriptionsOperation(subscriptionsToSave: [subscription], subscriptionIDsToDelete: [])
-        createOp.modifySubscriptionsCompletionBlock = { _, _, error in
-            guard error == nil else { return }
-            self.subscriptionIsLocallyCached = true
+        for database in [DatabaseType.dbPrivate.dataBase(), DatabaseType.dbShared.dataBase()] {
+            let subscription = CKDatabaseSubscription(subscriptionID: IceCreamConstant.cloudKitSubscriptionID)
+            
+            let notificationInfo = CKSubscription.NotificationInfo()
+            notificationInfo.shouldSendContentAvailable = true // Silent Push
+            
+            subscription.notificationInfo = notificationInfo
+            
+            let createOp = CKModifySubscriptionsOperation(subscriptionsToSave: [subscription], subscriptionIDsToDelete: [])
+            createOp.modifySubscriptionsCompletionBlock = { _, _, error in
+                guard error == nil else { return }
+                self.subscriptionIsLocallyCached = true
+            }
+            createOp.qualityOfService = .utility
+            database.add(createOp)
         }
-        createOp.qualityOfService = .utility
-        privateDatabase.add(createOp)
-        
         #endif
     }
 
@@ -292,8 +358,8 @@ extension SyncEngine {
         NotificationCenter.default.addObserver(forName: Notifications.cloudKitDataDidChangeRemotely.name, object: nil, queue: nil, using: { [weak self](_) in
             guard let self = self else { return }
             DispatchQueue.global(qos: .utility).async {
-                self.fetchChangesInDatabase()
-            }
+                self.fetchChangesInDatabase(databaseType: .dbPrivate)
+                self.fetchChangesInDatabase(databaseType: .dbShared)            }
         })
     }
 }
@@ -384,12 +450,13 @@ extension SyncEngine {
             }
         }
         
-        privateDatabase.add(modifyOpe)
+        DatabaseType.dbPrivate.dataBase().add(modifyOpe)
     }
     
     /// Fetch data on the CloudKit and merge with local
     public func pull() {
-        fetchChangesInDatabase()
+        fetchChangesInDatabase(databaseType: .dbPrivate)
+        fetchChangesInDatabase(databaseType: .dbShared)
     }
     
     /// Push all existing local data to CloudKit
@@ -405,7 +472,9 @@ public enum Notifications: String, NotificationName {
 
 public enum IceCreamKey: String {
     /// Tokens
-    case databaseChangesTokenKey
+    case publicDatabaseChangesTokenKey
+    case privateDatabaseChangesTokenKey
+    case sharedDatabaseChangesTokenKey
     case zoneChangesTokenKey
     
     /// Flags

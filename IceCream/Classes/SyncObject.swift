@@ -66,7 +66,13 @@ extension SyncObject: Syncable {
         }
     }
     
-    public func add(record: CKRecord) {
+    public func add(databaseType: DatabaseType, record: CKRecord) {
+        let realm = try! Realm()
+        guard var object = T().parseFromRecord(record: record, realm: realm) else {
+            print("There is something wrong with the converson from cloud record to local object")
+            return
+        }
+        object.databaseType = databaseType
         DispatchQueue.main.async {
             let realm = try! Realm()
             
@@ -115,7 +121,7 @@ extension SyncObject: Syncable {
             case .initial(_):
                 break
             case .update(let collection, _, let insertions, let modifications):
-                let recordsToStore = (insertions + modifications).filter { $0 < collection.count }.map { collection[$0] }.filter{ !$0.isDeleted }.map { $0.record }
+                let recordsToStore = (insertions + modifications).filter { $0 < collection.count }.map { collection[$0] }.filter{$0.databaseType == .dbPrivate}.filter{ !$0.isDeleted }.map { $0.record }
                 let recordIDsToDelete = modifications.filter { $0 < collection.count }.map { collection[$0] }.filter { $0.isDeleted }.map { $0.recordID }
                 
                 guard recordsToStore.count > 0 || recordIDsToDelete.count > 0 else { return }
