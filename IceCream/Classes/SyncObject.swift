@@ -14,9 +14,7 @@ import CloudKit
 /// 1. it takes care of the operations of CKRecordZone.
 /// 2. it detects the changeSets of Realm Database and directly talks to it.
 /// 3. it hands over to SyncEngine so that it can talk to CloudKit.
-
 public final class SyncObject<T> where T: Object & CKRecordConvertible & CKRecordRecoverable {
-    
     /// Notifications are delivered as long as a reference is held to the returned notification token. We should keep a strong reference to this token on the class registering for updates, as notifications are automatically unregistered when the notification token is deallocated.
     /// For more, reference is here: https://realm.io/docs/swift/latest/#notifications
     private var notificationToken: NotificationToken?
@@ -32,9 +30,7 @@ public final class SyncObject<T> where T: Object & CKRecordConvertible & CKRecor
 }
 
 // MARK: - Zone information
-
 extension SyncObject: Syncable {
-    
     public var recordType: String {
         return T.recordType
     }
@@ -70,7 +66,7 @@ extension SyncObject: Syncable {
         }
     }
     
-    public func add(record: CKRecord) {
+    public func add(record: CKRecord, ignoreTokens: [NotificationToken]) {
         DispatchQueue.main.async {
             guard let object = T.parseFromRecord(record: record, realm: self.realm) else {
                 print("There is something wrong with the converson from cloud record to local object")
@@ -81,8 +77,12 @@ extension SyncObject: Syncable {
             /// https://realm.io/docs/swift/latest/#objects-with-primary-keys
             self.realm.beginWrite()
             self.realm.add(object, update: true)
-            if let token = self.notificationToken {
-                try! self.realm.commitWrite(withoutNotifying: [token])
+            var tokens: [NotificationToken?] = ignoreTokens
+            // TODO verify that this does not change ignoreTokens i guess that's pass by value rather than pass by reference
+            tokens.append(self.notificationToken)
+            let ignoreTokens = tokens.compactMap({$0})
+            if !ignoreTokens.isEmpty {
+                try! self.realm.commitWrite(withoutNotifying: ignoreTokens)
             } else {
                 try! self.realm.commitWrite()
             }
@@ -108,9 +108,13 @@ extension SyncObject: Syncable {
     
     /// When you commit a write transaction to a Realm, all other instances of that Realm will be notified, and be updated automatically.
     /// For more: https://realm.io/docs/swift/latest/#writes
-    public func registerLocalDatabase() {
-        notificationToken = realm.objects(T.self).observe({ [weak self](changes) in
+    public func registerLocalDatabase(dbName: String) -> NotificationToken {
+
+        // TODO at this point we are being notified that something got added to the realm. We really only want to sync things to a very specific cloudkit database here. The way to do that is with the commitWrite(withoutNotifying:) ala `try! self.realm.commitWrite(withoutNotifying: [token])` which is in this class
+
+        let notificationToken = realm.objects(T.self).observe({ [weak self](changes) in
             guard let self = self else { return }
+            print("changes observed in \(dbName) \(changes)")
             switch changes {
             case .initial(_):
                 break
@@ -124,6 +128,8 @@ extension SyncObject: Syncable {
                 break
             }
         })
+        self.notificationToken = notificationToken
+        return notificationToken
     }
     
     public func cleanUp() {

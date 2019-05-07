@@ -15,15 +15,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
     var syncEngine: SyncEngine?
-    
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
-        
+
         syncEngine = SyncEngine(objects: [
             SyncObject<Person>(),
             SyncObject<Dog>(),
             SyncObject<Cat>()
             ])
-      
+
         /// If you wanna test public Database, comment the above syncEngine code and uncomment the following one
         /// Besides, uncomment Line 26 to 28 in Person.swift file
 //        syncEngine = SyncEngine(objects: [SyncObject<Person>()], databaseScope: .public)
@@ -47,11 +47,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         completionHandler(.newData)
         
     }
-    
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        
-        // How about fetching changes here?
-        
+
+    // ok so now that this method is here I need to add the UI components of the share inside of the object. maybe an API on the sync engine or something called `.share()`. CKConvertible maybe? I'll need to think about it more
+    internal func application(_ application: UIApplication, userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata) {
+        print("Hey we accepted the share")
+        let container = CKContainer.default()
+
+        container.accept(cloudKitShareMetadata) { (share, error) in
+            if let error = error {
+                print("accepting the share \(error)")
+            }
+            if let share = share {
+                share.participants.forEach({ participant in
+                    print("participant \(participant)")
+                })
+                print("Cool we have a share. I guess we show it?")
+            }
+        }
+
     }
 }
 

@@ -18,7 +18,9 @@ class CatsViewController: UIViewController {
     let bag = DisposeBag()
     
     let realm = try! Realm()
-    
+
+    var shareCreator: ShareCreator?
+
     lazy var addBarItem: UIBarButtonItem = {
         let b = UIBarButtonItem(barButtonSystemItem: UIBarButtonSystemItem.add, target: self, action: #selector(add))
         return b
@@ -69,7 +71,8 @@ class CatsViewController: UIViewController {
         
         let data = UIImageJPEGRepresentation(UIImage(named: cat.age % 2 == 1 ? "heart_cat" : "dull_cat")!, 1.0) as Data!
         cat.avatar = CreamAsset.create(object: cat, propName: Cat.AVATAR_KEY, data: data!)
-        
+
+        // TODO this is where we add the cat, we may need to write without notifying the shared database
         try! realm.write {
             realm.add(cat)
         }
@@ -94,7 +97,7 @@ extension CatsViewController: UITableViewDelegate {
             self.present(alert, animated: true, completion: nil)
         }
         
-        let archiveAction = UITableViewRowAction(style: .normal, title: "Plus") { [weak self](_, ip) in
+        let incrementAgeAction = UITableViewRowAction(style: .normal, title: "Plus") { [weak self](_, ip) in
             guard let `self` = self else { return }
             guard ip.row < `self`.cats.count else { return }
             let cat = `self`.cats[ip.row]
@@ -102,6 +105,27 @@ extension CatsViewController: UITableViewDelegate {
                 cat.age += 1
             }
         }
+        let renameImageAction = UITableViewRowAction(style: .normal, title: "Change Name") { [weak self](_, ip) in
+            guard let `self` = self else { return }
+            guard ip.row < `self`.cats.count else { return }
+            let cat = `self`.cats[ip.row]
+
+            let alert = UIAlertController(title: "New Name", message: nil, preferredStyle: .alert)
+            alert.addTextField(configurationHandler: nil)
+
+            alert.addAction(UIAlertAction(title: "Ok", style: .default, handler: { (alertObject) in
+                guard let text = alert.textFields?.first?.text else {
+                    print("no text field or text")
+                    return
+                }
+                try! `self`.realm.write {
+                    cat.name = text
+                }
+            }))
+            `self`.present(alert, animated: true)
+        }
+        renameImageAction.backgroundColor = .orange
+
         let changeImageAction = UITableViewRowAction(style: .normal, title: "Change Img") { [weak self](_, ip) in
             guard let `self` = self else { return }
             guard ip.row < `self`.cats.count else { return }
@@ -113,6 +137,7 @@ extension CatsViewController: UITableViewDelegate {
             }
         }
         changeImageAction.backgroundColor = .blue
+
         let emptyImageAction = UITableViewRowAction(style: .normal, title: "Nil Img") { [weak self](_, ip) in
             guard let `self` = self else { return }
             guard ip.row < `self`.cats.count else { return }
@@ -122,7 +147,22 @@ extension CatsViewController: UITableViewDelegate {
             }
         }
         emptyImageAction.backgroundColor = .purple
-        return [deleteAction, archiveAction, changeImageAction, emptyImageAction]
+
+        let shareAction = UITableViewRowAction(style: .normal, title: "Share") { [weak self](_, ip) in
+            guard let `self` = self else { return }
+            guard ip.row < `self`.cats.count else { return }
+            let cat = `self`.cats[ip.row]
+            self.shareCreator = ShareCreator(with: self, name: cat.name )
+            self.shareCreator?.share(cat, from: self.view)
+        }
+        shareAction.backgroundColor = .green
+        return [deleteAction,
+                // TODO removing these just for testing share functionality
+//                incrementAgeAction,
+//                changeImageAction,
+//                emptyImageAction,
+                renameImageAction,
+                shareAction]
     }
 }
 

@@ -6,9 +6,11 @@
 //
 
 import CloudKit
+import RealmSwift
 
 final class PrivateDatabaseManager: DatabaseManager {
-    
+    var ignoreTokens: [NotificationToken] = []
+
     let container: CKContainer
     let database: CKDatabase
     
@@ -21,6 +23,8 @@ final class PrivateDatabaseManager: DatabaseManager {
     }
     
     func fetchChangesInDatabase(_ callback: (() -> Void)?) {
+        print("fetch changes in private database \(syncObjects)")
+
         let changesOperation = CKFetchDatabaseChangesOperation(previousServerChangeToken: databaseChangeToken)
         
         /// Only update the changeToken when fetch process completes
@@ -120,8 +124,9 @@ final class PrivateDatabaseManager: DatabaseManager {
     
     func registerLocalDatabase() {
         self.syncObjects.forEach { object in
+            print("register private db for \(object.recordType)")
             DispatchQueue.main.async {
-                object.registerLocalDatabase()
+                self.ignoreTokens.append(object.registerLocalDatabase(dbName: "private"))
             }
         }
     }
@@ -141,7 +146,7 @@ final class PrivateDatabaseManager: DatabaseManager {
             /// Handle the record:
             guard let self = self else { return }
             guard let syncObject = self.syncObjects.first(where: { $0.recordType == record.recordType }) else { return }
-            syncObject.add(record: record)
+            syncObject.add(record: record, ignoreTokens: self.ignoreTokens)
         }
         
         changesOp.recordWithIDWasDeletedBlock = { [weak self] recordId, _ in
@@ -157,7 +162,7 @@ final class PrivateDatabaseManager: DatabaseManager {
                 guard let syncObject = self.syncObjects.first(where: { $0.zoneID == zoneId }) else { return }
                 syncObject.zoneChangesToken = token
                 callback?()
-                print("Fetch records successfully in zone: \(zoneId))")
+                print("Fetch records successfully in private db zone: \(zoneId))")
             case .retry(let timeToWait, _):
                 ErrorHandler.shared.retryOperationIfPossible(retryAfter: timeToWait, block: {
                     self.fetchChangesInZones(callback)

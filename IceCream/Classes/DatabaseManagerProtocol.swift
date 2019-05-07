@@ -6,9 +6,15 @@
 //
 
 import CloudKit
+import RealmSwift
 
 public protocol DatabaseManager: class {
-    
+
+    /// Each database class needs to indentify which notification tokens to NOT send database
+    /// updates to. For instance, additions coming from the private database should not update
+    /// the realm, then notify the public or shared database
+    var ignoreTokens: [NotificationToken] {get set}
+
     /// A conduit for accessing and performing operations on the data of an app container.
     var database: CKDatabase { get }
     
@@ -18,7 +24,8 @@ public protocol DatabaseManager: class {
     var syncObjects: [Syncable] { get }
     
     init(objects: [Syncable], container: CKContainer)
-    
+
+    /// Initiates a listener for objects added to the local realm which needs to be piped to the cloudkit dabase
     func prepare()
     
     func fetchChangesInDatabase(_ callback: (() -> Void)?)
@@ -44,9 +51,11 @@ public protocol DatabaseManager: class {
 extension DatabaseManager {
     
     func prepare() {
+        print("self \(self)")
         syncObjects.forEach {
             $0.pipeToEngine = { [weak self] recordsToStore, recordIDsToDelete in
                 guard let self = self else { return }
+                print("self is \(self)")
                 self.syncRecordsToCloudKit(recordsToStore: recordsToStore, recordIDsToDelete: recordIDsToDelete)
             }
         }

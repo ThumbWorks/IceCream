@@ -6,9 +6,11 @@
 //
 
 import CloudKit
+import RealmSwift
 
 final class PublicDatabaseManager: DatabaseManager {
-    
+    var ignoreTokens: [NotificationToken] = []
+
     let container: CKContainer
     let database: CKDatabase
     
@@ -21,6 +23,8 @@ final class PublicDatabaseManager: DatabaseManager {
     }
     
     func fetchChangesInDatabase(_ callback: (() -> Void)?) {
+        print("fetch changes in public database \(syncObjects)")
+
         syncObjects.forEach { [weak self] syncObject in
             let predicate = NSPredicate(value: true)
             let query = CKQuery(recordType: syncObject.recordType, predicate: predicate)
@@ -52,7 +56,8 @@ final class PublicDatabaseManager: DatabaseManager {
     func registerLocalDatabase() {
         syncObjects.forEach { object in
             DispatchQueue.main.async {
-                object.registerLocalDatabase()
+                print("register public db for \(object.recordType)")
+                self.ignoreTokens.append(object.registerLocalDatabase(dbName: "public"))
             }
         }
     }
@@ -60,7 +65,7 @@ final class PublicDatabaseManager: DatabaseManager {
     // MARK: - Private Methods
     private func excuteQueryOperation(queryOperation: CKQueryOperation,on syncObject: Syncable, callback: (() -> Void)? = nil) {
         queryOperation.recordFetchedBlock = { record in
-            syncObject.add(record: record)
+            syncObject.add(record: record, ignoreTokens: self.ignoreTokens)
         }
         
         queryOperation.queryCompletionBlock = { [weak self] cursor, error in
@@ -89,7 +94,13 @@ final class PublicDatabaseManager: DatabaseManager {
     
     private func createSubscriptionInPublicDatabase(on syncObject: Syncable) {
         let predict = NSPredicate(value: true)
-        let subscription = CKQuerySubscription(recordType: syncObject.recordType, predicate: predict, subscriptionID: IceCreamSubscription.cloudKitPublicDatabaseSubscriptionID.id, options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion])
+        let subscription = CKQuerySubscription(
+            recordType: syncObject.recordType,
+            predicate: predict,
+            options: [CKQuerySubscription.Options.firesOnRecordCreation,
+                      CKQuerySubscription.Options.firesOnRecordDeletion,
+                      CKQuerySubscription.Options.firesOnRecordUpdate]
+        )
         
         let notificationInfo = CKSubscription.NotificationInfo()
         notificationInfo.shouldSendContentAvailable = true // Silent Push

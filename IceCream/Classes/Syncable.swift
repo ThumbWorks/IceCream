@@ -9,10 +9,11 @@ import Foundation
 import CloudKit
 import RealmSwift
 
+
 /// Since `sync` is an informal version of `synchronize`, so we choose the `syncable` word for
 /// the ability of synchronization.
 public protocol Syncable: class {
-    
+
     /// CKRecordZone related
     var recordType: String { get }
     var zoneID: CKRecordZone.ID { get }
@@ -25,9 +26,15 @@ public protocol Syncable: class {
     var realm: Realm { get set }
     
     /// Realm Database related
-    func registerLocalDatabase()
+
+    /// TODO temporarily adding the dbName for debug purposes
+    func registerLocalDatabase(dbName: String) -> NotificationToken
     func cleanUp()
-    func add(record: CKRecord)
+
+    /// Remote database has indicated that there is a new record which has been added
+    func add(record: CKRecord, ignoreTokens: [NotificationToken])
+
+    /// Remote database has indicated that there is an existing record which has been deleted
     func delete(recordID: CKRecord.ID)
     
     /// CloudKit related

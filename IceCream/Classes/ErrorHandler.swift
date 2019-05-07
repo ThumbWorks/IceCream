@@ -74,6 +74,7 @@ struct ErrorHandler {
             return .recoverableError(reason: .serverRecordChanged, message: message)
         case .partialFailure:
             // Normally it shouldn't happen since if CKOperation `isAtomic` set to true
+            print("userInfo is \(e.userInfo)")
             if let dictionary = e.userInfo[CKPartialErrorsByItemIDKey] as? NSDictionary {
                 print("ErrorHandler.partialFailure for \(dictionary.count) items; CKPartialErrorsByItemIDKey: \(dictionary)")
             }
